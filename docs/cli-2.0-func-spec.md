@@ -90,6 +90,8 @@ Compact bucket database data only
 
  - **Cluster edit command**
 
+c
+
     couchbase-cli cluster-edit [cluster OPTIONS]
     --cluster-username=USER                 admin username
     --cluster-password=password             admin password
@@ -130,6 +132,7 @@ Create/Edit remote cluster connection
     --xdcr-password <password>
 
 POST  /pools/default/remoteClusters?name=<>&hostname=<>&username=<>&password=<>
+
 PUT /pools/default/remoteClusters?name=<>&hostname=<>&username=<>&password=<>
 
 Delete XDCRr replication session
