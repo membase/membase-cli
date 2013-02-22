@@ -12,6 +12,8 @@ import mc_bin_client
 import memcacheConstants
 
 import pump
+import pump_mc
+import pump_cb
 
 # TODO: (1) TAPDumpSource - handle TAP_FLAG_NETWORK_BYTE_ORDER.
 
@@ -30,6 +32,7 @@ class TAPDumpSource(pump.Source):
         self.num_msg = 0
 
         self.recv_min_bytes = int(getattr(opts, "recv_min_bytes", 4096))
+        self.vbucket_list = getattr(opts, "vbucket_list", None)
 
     @staticmethod
     def can_handle(opts, spec):
@@ -245,6 +248,9 @@ class TAPDumpSource(pump.Source):
             if self.tap_conn.tap_fix_flag_byteorder:
                 tap_opts[memcacheConstants.TAP_FLAG_TAP_FIX_FLAG_BYTEORDER] = ''
 
+            if self.vbucket_list:
+                tap_opts[coucbaseConstants.TAP_FLAG_LIST_VBUCKETS] = ''
+
             ext, val = TAPDumpSource.encode_tap_connect_opts(tap_opts)
 
             self.tap_conn._sendCmd(memcacheConstants.CMD_TAP_CONNECT,
@@ -328,7 +334,7 @@ class TAPDumpSource(pump.Source):
         return joined[:nbytes], joined[nbytes:]
 
     @staticmethod
-    def encode_tap_connect_opts(opts, backfill=False):
+    def encode_tap_connect_opts(opts, backfill=False, vblist=None):
         header = 0
         val = []
 
@@ -341,6 +347,11 @@ class TAPDumpSource(pump.Source):
                 if opts[op][2] >= 0:
                     val.append(struct.pack(">HHQ",
                                            opts[op][0], opts[op][1], opts[op][2]))
+            elif vblist and op == memcacheConstants.TAP_FLAG_LIST_VBUCKETS:
+                val.apend(struct.pack(">H", len(vblist))
+                vblist = vblist[1:-1].split(",")
+                for v in vblist:
+                    val.apend(struct.pack(">H", int(v)))
             else:
                 val.append(opts[op])
 
@@ -371,3 +382,60 @@ class TAPDumpSource(pump.Source):
             return 0, None
 
         return 0, curr_items[-1]
+
+class TapSink(pump_mc.CBSink):
+    """Smart client sink using tap protocal to couchbase cluster."""
+    def __init__(self, opts, spec, source_bucket, source_node,
+                 source_map, sink_map, ctl, cur):
+        super(TapSink, self).__init__(opts, spec, source_bucket, source_node,
+                                     source_map, sink_map, ctl, cur)
+
+        self.tap_name = "".join(random.sample(string.letters, 16))
+
+    @staticmethod
+    def check_base(opts, spec):
+        #allow destination vbucket state to be anything
+
+        op = getattr(opts, "destination_operation", None)
+        if not op in [None, 'set', 'add', 'get']:
+            return ("error: --destination-operation unsupported value: %s" +
+                    "; use set, add, get") % (op)
+
+        return pump.EndPoint.check_base(opts, spec)
+
+    def find_conn(self, mconns, vbucket_id):
+
+        rc, conn = super(TapSink, self).find_conn(mconns, vbucket_id)
+        if rc != 0:
+            return rc, None
+
+        tap_opts = {memcacheConstants.TAP_FLAG_SUPPORT_ACK: ''}
+
+        conn.tap_fix_flag_byteorder = version.split(".") >= ["2", "0", "0"]
+        if self.tap_conn.tap_fix_flag_byteorder:
+            tap_opts[memcacheConstants.TAP_FLAG_TAP_FIX_FLAG_BYTEORDER] = ''
+
+        ext, val = TapSink.encode_tap_connect_opts(tap_opts)
+
+        conn._sendCmd(memcacheConstants.CMD_TAP_CONNECT,
+                     self.tap_name, val, 0, ext)
+        return rv, conn
+
+    def send_msgs(self, conn, msgs, operation, vbucket_id=None):
+        rv = super(TapSink, self).sendMsg(conn, msgs, operation, vbucket_id)
+        if rv != 0:
+            return rv
+
+        #send vbucket recovery commit msg
+        host, port, user, pwd, path = \
+            pump.parse_spec(self.opts, self.sink, 8091)
+
+        params={"vbucket", vbucket_id}
+        err, conn = \
+            pump.rest_request(host, int(port), user, pwd,
+                              '/pools/default/buckets/%s/commitVbucketRecovery' % self.sink_bucket,
+                              method='POST', body=params, reason='notify vbucket recovery done')
+        if err:
+            logging.error("error: fail to notify that vbucket msg transferring is done")
+
+        return rv

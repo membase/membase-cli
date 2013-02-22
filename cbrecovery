@@ -1,0 +1,130 @@
+#!/usr/bin/env python
+# -*-python-*-
+
+"""
+Recover missing vbuckets from remote cluster due to failed rebalancing operatio
+"""
+
+
+import pump_transfer
+import pump
+import pump_tab
+import sys
+import optparse
+import platform
+import os
+import urllib
+
+class Recovery(pump_transfer.Transfer):
+    """Entry point for 2.0 cbrecovery."""
+
+    def __init__(self):
+        self.name = "cbrecovery"
+        self.source_alias = "cluster to recover from"
+        self.sink_alias = "cluster to recover to"
+        self.vbucket_list = None
+        self.sink_bucket = None
+        self.source_bucket = None
+
+        self.usage = \
+            "%prog [options] source destination\n\n" \
+            "Recover missing vbuckets from remote cluster .\n\n" \
+            "Examples:\n" \
+            "  %prog [options] http://SOURCE:8091 http://DEST:8091"
+
+    def main(self, argv):
+    
+        err, opts, source, sink = self.opt_parse(argv)
+        if err:
+            return err
+        self.sink_bucket = getattr(opts, "bucket_destination", None)
+        if not self.sink_bucket:
+            return "Should specify destionation bucket for restore"
+        self.source_bucket = getattr(opts, "bucket_source", None)
+        if not self.sink_bucket:
+            return "Should specify source bucket for restore"
+
+        #communicate with destination before
+        err = self.pre_transfer(opts, source, sink)
+        if err:
+            return err
+
+        vbucket_list=[]
+        if self.vbucket_list:
+            for vlist in self.vbucket_list.itervalues():
+                for v in vlist:
+                    vbucket_list.append(v)
+            if vbucket_list:
+                args.append("--vbucket-list")
+                args.append(str(vbucket_list))
+
+        #only care about data recovery
+        args.append("--extra")
+        args.append("data_only=1")
+
+        err = pump_transfer.Transfer.main(self, args)
+        if err:
+            return err
+
+        #communicate after
+        return self.post_transfer(opts, source, sink)
+
+    def pre_transfer(self, opts, source, sink):
+
+        host, port, user, pwd, path = \
+            pump.parse_spec(opts, args[1], 8091)
+        
+        #retrieve a list of missing vbucket
+        err, conn, response = \
+            pump.rest_request_json(host, int(port), user, pwd,
+                                   "/pools/default/buckets/%s/beginRecovery" % self.sink_bucket,
+                                   method='GET', reason='begin_recovery')
+        if err:
+            return err
+        self.vbucket_list = response
+
+        if not self.vblist:
+            return "No missing vbucket retrieved"
+
+        return 0
+        
+    def post_transfer(self, opts, source, sink):
+        if not self.sink_bucket:
+            return "Should specify destionation bucket for restore"
+
+        host, port, user, pwd, path = \
+            pump.parse_spec(opts, sink, 8091)
+
+        err, conn = \
+            pump.rest_request(host, int(port), user, pwd,
+                              '/pools/default/buckets/%s/endRecovery' % self.sink_bucket,
+                              method='POST', reason='set state to active')
+        return err
+
+    def add_parser_options(self, p):
+        p.add_option("-b", "--bucket-source",
+                     action="store", type="string", default=None,
+                     metavar="default",
+                     help="""source bucket to recover from """)
+        p.add_option("-B", "--bucket-destination",
+                     action="store", type="string", default=None,
+                     metavar="default",
+                     help="""destination bucket to recover to """)
+        p.add_option("-U", "--username-destination",
+                     action="store", type="string", default=None,
+                     help="REST username for destination cluster or server node")
+        p.add_option("-P", "--password-destination",
+                     action="store", type="string", default=None,
+                     help="REST password for destination cluster or server node")
+
+        Transfer.opt_parser_options_common(self, p)
+
+    def find_handlers(self, opts, source, sink):
+        return pump_tap.TAPDumpSource, pump_tap.TapSink
+
+if __name__ == '__main__':
+    if platform.system() == "Windows":
+        python_lib = os.path.join(os.path.dirname(sys.argv[0]), '..')
+        sys.path.append(python_lib)
+
+    pump_transfer.exit_handler(WorkloadGen().main(sys.argv))
