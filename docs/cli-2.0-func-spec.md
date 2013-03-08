@@ -1,11 +1,11 @@
 **Newly added commands for 2.0 features:**
 
     couchbase-cli COMMAND
-    COMMAND:
-    bucket-purge             purge all bucket data from disk
+
+    bucket-flush             purge all bucket data from disk
     bucket-compact           compact bucket database and index data
     bucket-cancel-compaction stop compaction process
-    bucket-observe-diskqueue wait for disk queue draining complete
+
     cluster-edit             modify cluster wide settings
     xdcr-setup               create/edit/delete remote cluster connection
     xdcr-replicate           create/delete replication session
@@ -13,11 +13,12 @@
     setting-notification     set notification settings
     setting-alert            set email alert settings
     setting-autofailover     set auto failover settings
+    setting-xdcr             set xdcr related settings
 
 **Newly added options for existed commands**
 
     bucket-create
-    --enable-purge=[0|1]            enable/disable purge [MB-7235]
+    --enable-flush=[0|1]            enable/disable flush [MB-7235]
     --enable-replica-index=[0|1]    enable index replication
 
     node-init
@@ -29,28 +30,28 @@
     --cluster-port=8080                     same as cluster-init-port
     --cluster-ramsize=300                   same as cluster-init-ramsize
 
-    cluster-
+
  - **Enable/Disable bucket flush**
 
-Extend option for bucket-create / bucket-edit with --enable-purge
+Extend option for bucket-create / bucket-edit with --enable-flush
 
-    couchbase-cli bucket-create --enable-purge=[0|1]
+    couchbase-cli bucket-create --enable-flush=[0|1]
 
 where 1 means to enable purging and 0 means to disable purging. Default is 0.
 
- - **Bucket purge command**
+ - **Bucket flush command**
 
 Flush all data under a bucket when flush option is enabled. By default, a confirmation question will be asked before proceeding.
 
-    couchbase-cli bucket-purge [bucket-* OPTIONS] --force
+    couchbase-cli bucket-flush [bucket-* OPTIONS] --force
 
 /pools/default/buckets/default/controller/doFlush
 
-    --force         purge bucket data without confirmation
+    --force        flush bucket data without confirmation
 
 Success:  Bucket flushing is successful
 
-Fail :  You have to use bucket-edit to enable purge option first before running purging request.
+Fail :  You have to use bucket-edit to enable flush option first before running flushing request.
 
  - **Enable bucket replica index**
 
@@ -108,8 +109,8 @@ A new setting-compaction cmd for compaction related settings
     --compaction-view-size=SIZE[MB]           at which point view compaction is triggered
     --compaction-period-from=HH:MM            allow compaction time period from
     --compaction-period-to=HH:MM              allow compaction time period to
-   --enable-compaction-abort=[0|1]           allow compaction abort when time expires
-   --enable-compaction-parallel=[0|1]        allow parallel compaction for database and view
+    --enable-compaction-abort=[0|1]           allow compaction abort when time expires
+    --enable-compaction-parallel=[0|1]        allow parallel compaction for database and view
 
 
  - **Enable/disable auto failover**
@@ -162,10 +163,78 @@ Create a new replication session
     --xdcr-replicate-from-bucket
     --xdcr-replicate-to-cluster
     --xdcr-replicate-to-bucket
-    --xdcr-replicate-type = "continuous"
+
 
 Cancel/stop replication
 
     couchbase-cli xdcr-replicate --delete
     --xdcr-replication-id <session_id>
+
+ - **Cluster setting management**
+
+setting-compacttion OPTIONS:
+
+      --compaction-db-percentage=PERCENTAGE     at which point database compaction is triggered
+      --compaction-db-size=SIZE[MB]             at which point database compaction is triggered
+      --compaction-view-percentage=PERCENTAGE   at which point view compaction is triggered
+      --compaction-view-size=SIZE[MB]           at which point view compaction is triggered
+      --compaction-period-from=HH:MM            allow compaction time period from
+      --compaction-period-to=HH:MM              allow compaction time period to
+      --enable-compaction-abort=[0|1]           allow compaction abort when time expires
+      --enable-compaction-parallel=[0|1]        allow parallel compaction for database and view
+
+setting-notification OPTIONS:
+
+      --enable-notification=[0|1]               allow notification
+
+setting-alert OPTIONS:
+
+      --enable-email-alert=[0|1]                allow email alert
+      --email-recipients=RECIPIENT              email recipents, separate addresses with , or ;
+      --email-sender=SENDER                     sender email address
+      --email-user=USER                         email server username
+      --email-password=PWD                      email server password
+      --email-host=HOST                         email server host
+      --email-port=PORT                         email server port
+      --enable-email-encrypt=[0|1]              email encrypt
+      --alert-auto-failover-node                node was auto failover
+      --alert-auto-failover-max-reached         maximum number of auto failover nodes was reached
+      --alert-auto-failover-node-down           node wasn't auto failover as other nodes are down at the same time\\
+      --alert-auto-failover-cluster-small       node wasn't auto fail over as cluster was too small
+      --alert-ip-changed                        node ip address has changed unexpectedly
+      --alert-disk-space                        disk space used for persistent storgage has reached at least 90% capacity
+      --alert-meta-overhead                     metadata overhead is more than 50%
+      --alert-meta-oom                          bucket memory on a node is entirely used for metadata
+      --alert-write-failed                      writing data to disk for a specific bucket has failed
+
+setting-autofailover OPTIONS:
+
+      --enable-auto-failover=[0|1]              allow auto failover
+      --auto-failover-timeout=TIMEOUT (>=30)    specify timeout that expires to trigger auto failover
+
+setting-xdcr OPTIONS:
+
+      --max-concurrent-reps=[32]             maximum concurrent replications per bucket, 8 to 256.
+      --checkpoint-interval=[1800]           intervals between checkpoints, 60 to 14400 seconds.
+      --worker-batch-size=[500]              doc batch size, 500 to 10000.
+      --doc-batch-size=[2048]KB              document batching size, 10 to 100000 KB
+      --failure-restart-interval=[30]        interval for restarting failed xdcr, 1 to 300 seconds
+
+xdcr-setup OPTIONS:
+
+      --create                               create a new xdcr configuration
+      --edit                                 modify existed xdcr configuration
+      --delete                               delete existed xdcr configuration
+      --xdcr-cluster-name=CLUSTERNAME        cluster name
+      --xdcr-hostname=HOSTNAME               remote host name to connect to
+      --xdcr-username=USERNAME               remote cluster admin username
+      --xdcr-password=PASSWORD               remtoe cluster admin password
+
+xdcr-replicate OPTIONS:
+
+      --create                               create and start a new replication
+      --delete                               stop and cancel a replication
+      --xdcr-from-bucket=BUCKET              local bucket name to replicate from
+      --xdcr-clucter-name=CLUSTERNAME        remote cluster to replicate to
+      --xdcr-to-bucket=BUCKETNAME            remote bucket to replicate to
 
